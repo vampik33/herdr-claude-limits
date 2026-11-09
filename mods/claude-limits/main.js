@@ -12,6 +12,8 @@ const ICON = "✻";
 const ICON_COLOR = "#D97757"; // Claude orange
 const METER_W = 48;
 const METER_H = 6;
+const UPDATING_OPACITY = 0.3;
+const CLICK_DIM_MS = 300; // a file read is instant: keep the dim long enough to see
 
 // Time left until a reset: "6d 2h", "4h 7m", "12m".
 function remaining(seconds) {
@@ -32,17 +34,29 @@ function age(seconds) {
 export default class ClaudeLimits extends View {
   init(_props, cx) {
     this.data = null;
+    this.updating = false; // a click's update is running
+    this.failed = false; // a click's update failed, and no read has succeeded since
     this.read(cx);
     cx.timer.every(15000, (cx) => this.read(cx));
   }
 
-  read(cx) {
+  read(cx, clicked = false) {
+    if (clicked) {
+      if (this.updating) return;
+      this.updating = true;
+      cx.notify();
+    }
     cx.spawn(async (cx) => {
       try {
         const text = await readTextFile(home() + STATE);
         this.data = text ? JSON.parse(text) : null;
+        this.failed = false;
       } catch (_e) {
-        this.data = null; // a half-written or unreadable file reads as "no data yet"
+        if (clicked) this.failed = true; // an unreadable file keeps the last values
+      }
+      if (clicked) {
+        await cx.sleep(CLICK_DIM_MS);
+        this.updating = false;
       }
       cx.notify();
     });
@@ -73,10 +87,12 @@ export default class ClaudeLimits extends View {
     return h_flex().id("claude-limits").size_full().px(14).gap(8).items_center()
       .bg(t.chrome).border_t(1).border_color(t.border)
       .text_size(size).whitespace_nowrap().cursor_pointer()
-      .on_click((_e, cx) => this.read(cx))
-      .child(div().flex_none().text_color(tone(ICON_COLOR)).child(ICON))
-      .when(live.length === 0, (el) => el.child(div().text_color(t.dim).child("… (start a Claude Code session)")))
-      .children(parts)
-      .when(stale, (el) => el.child(div().text_color(t.dim).child(`· ${age(now - d.captured_at)} ago`)));
+      .on_click((_e, cx) => this.read(cx, true))
+      .child(h_flex().gap(8).items_center().opacity(this.updating ? UPDATING_OPACITY : 1)
+        .child(div().flex_none().text_color(tone(ICON_COLOR)).child(ICON))
+        .when(live.length === 0, (el) => el.child(div().text_color(t.dim).child("… (start a Claude Code session)")))
+        .children(parts)
+        .when(stale, (el) => el.child(div().text_color(t.dim).child(`· ${age(now - d.captured_at)} ago`)))
+        .when(this.failed && !this.updating, (el) => el.child(div().text_color(t.dim).child("· update failed"))));
   }
 }

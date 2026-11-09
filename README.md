@@ -14,7 +14,10 @@ subscription usage limits in a thin strip at the bottom of the window:
   `12m`).
 - The bar and percent turn yellow from 80% and red from 95%.
 - Data older than 15 minutes is dimmed and marked `· 2h ago`.
-- Click the strip to re-read now; it also re-reads every 15 s.
+- Click the strip to re-read the captured numbers now; it dims briefly to
+  confirm, and shows `· update failed` if the file can't be read. It also
+  re-reads every 15 s. A click can't get numbers newer than the last
+  statusline update.
 
 ## Requirements
 

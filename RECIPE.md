@@ -41,14 +41,17 @@ numbers come from the statusline, not from the mod.
   passed disappears.
 - When the data is older than 15 minutes (`captured_at`), every part turns
   `dim` and `· 2h ago` is appended (`45m`, `2h`, `3d`).
-- Clicking anywhere on the strip re-reads the file at once.
-- No keys, no hover effects, nothing animates.
+- Clicking anywhere on the strip re-reads the file at once. Its contents
+  dim to 30% opacity for 300 ms, and a click during that time does nothing.
+  If the file exists but can't be read or parsed, the last values stay and
+  `· update failed` follows in `dim` until a read succeeds.
+- No keys, no hover effects, and apart from the click's dim nothing animates.
 
 ## Built from
 
 - `mods/claude-limits/main.js`: one `View`. `init` reads the file and starts
   `cx.timer.every(15000, …)`; `read` runs `readTextFile(home() + "/.local/state/herdr-claude-limits/rate_limits.json")`
-  inside `cx.spawn`, `JSON.parse`s it (a parse error counts as no data) and
+  inside `cx.spawn`, `JSON.parse`s it (a parse error keeps the last values) and
   `cx.notify()`s. `render` uses `theme()`, `settings()`, `h_flex` from
   `gpui-base` and `div` from `gpui-kit`. No `exec`, no commands, no
   shipped mods.
