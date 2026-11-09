@@ -57,6 +57,17 @@ the last captured values, dimmed once they are 15 minutes old.
 
 ## Install
 
+From the [Herdr gallery](https://herdr.dev/gallery/?type=mods): give your
+agent the prompt on the mod's page. It copies the mod, then wraps your
+statusline with `claude-limits-statusline wrap` (it asks first). To do the
+same by hand after copying the mod:
+
+```sh
+python3 ~/.config/herdr-app/mods/claude-limits/claude-limits-statusline wrap
+```
+
+From this repository:
+
 ```sh
 cd herdr-claude-limits        # this repository
 ./install.sh                 # copy the mod, print the statusLine snippet
@@ -82,6 +93,8 @@ cd herdr-claude-limits        # this repository
 
 ```sh
 ./install.sh --uninstall-statusline           # restore your original statusLine command
+# or, without the repository:
+# python3 ~/.config/herdr-app/mods/claude-limits/claude-limits-statusline unwrap
 rm -r ~/.config/herdr-app/mods/claude-limits  # remove the mod
 rm -r ~/.local/state/herdr-claude-limits      # remove the captured numbers
 ```

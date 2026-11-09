@@ -8,6 +8,13 @@ command, captured by a small wrapper script; nothing is fetched.
 
 ![Claude limits](preview.png)
 
+**Adding this mod is two steps.** Copy `mods/claude-limits/` into the
+mods folder, then, after telling the person it edits their Claude Code
+settings (with a backup), run
+`python3 <installed mod folder>/claude-limits-statusline wrap`. Until
+that second step the strip only says "start a Claude Code session": the
+numbers come from the statusline, not from the mod.
+
 ## What you see
 
 - One full-width row, 26px tall, docked at the bottom (`place: "bottom"`),
@@ -59,14 +66,21 @@ command, captured by a small wrapper script; nothing is fetched.
   `memfd`) and `execvp`s the wrapped command: one argument runs as
   `/bin/sh -c <arg>`, several run as argv. No wrapped command: no output,
   exit 0. Any error while saving is swallowed.
-- `install.sh`: copies the mod into `${HERDR_APP_HOME:-~/.config/herdr-app}/mods/`
-  (refuses to replace a different copy without `--force`).
-  `--statusline` rewrites `statusLine.command` in
+- `mods/claude-limits/claude-limits-statusline`: Python 3, standard
+  library only. `wrap` rewrites `statusLine.command` in
   `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json` to
   `'<tap path>' -- '<old command>'` with Python's `json`, after a
   `settings.json.bak-<time>` backup, keeping every other key and
-  `refreshInterval`; it never wraps twice. `--uninstall-statusline` puts
-  the old command back. Without `--statusline` it prints the snippet.
+  `refreshInterval`; it never wraps twice, sets the tap alone when there
+  is no statusline, and restores the tap's execute bit. The tap path is
+  the `claude-limits-tap` next to the script, so a renamed mod folder
+  still works. `unwrap` puts the old command back. It lives in the mod
+  folder because a gallery install copies only that folder.
+- `install.sh`: copies the mod into `${HERDR_APP_HOME:-~/.config/herdr-app}/mods/`
+  (refuses to replace a different copy without `--force`).
+  `--statusline` runs the installed `claude-limits-statusline wrap`,
+  `--uninstall-statusline` runs `unwrap`. Without `--statusline` it
+  prints the snippet.
 
 ## Watch out
 
@@ -84,7 +98,8 @@ command, captured by a small wrapper script; nothing is fetched.
   still, and the strip would call a live session stale; hence the 60 s
   refresh.
 - The statusLine command points at the tap inside the installed mod folder;
-  removing the mod without `--uninstall-statusline` breaks the statusline.
+  removing the mod without `claude-limits-statusline unwrap` (or
+  `install.sh --uninstall-statusline`) first breaks the statusline.
 - Herdr docks the 26px strip only once, the first time it sees the mod
   folder, into whichever layout is shown at that moment, at the bottom of
   its root. Other layouts don't get it. To have it elsewhere, switch to that
@@ -100,7 +115,11 @@ command, captured by a small wrapper script; nothing is fetched.
 - `python3 -m unittest discover -s tests` passes (tap merging, expiry,
   non-JSON input, identical stdin to the wrapped command with its stdout,
   stderr and exit code, unwritable state dir; installer wrap, idempotency,
-  restore, key preservation).
+  restore, key preservation, wrap from a renamed copy of the mod folder).
+- `statusLine.command` in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`
+  starts with the installed mod's `claude-limits-tap`, followed by `--`
+  and the person's previous command, and a `settings.json.bak-<time>`
+  exists.
 - `<tap> -- ccstatusline < payload.json` prints byte-for-byte what
   `ccstatusline < payload.json` prints, and writes the data file.
 - With a fresh data file the strip shows both windows; at 83% the 5h bar

@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -114,6 +115,25 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(self.read()["statusLine"], {"type": "command", "command": f"'{self.tap}'"})
         self.install("--uninstall-statusline")
         self.assertEqual(self.read(), {"model": "opus"})
+
+
+    def test_gallery_install_wraps_from_copied_folder(self):
+        # A gallery install copies only mods/claude-limits/ (here under another
+        # name) and runs the script inside it; the tap must be that copy's.
+        folder = os.path.join(self.tmp.name, "gallery", "mods", "claude-limits-2")
+        shutil.copytree(os.path.join(ROOT, "mods", "claude-limits"), folder)
+        tap = os.path.join(folder, "claude-limits-tap")
+        os.chmod(tap, 0o644)  # copied file by file, without +x
+        env = dict(os.environ, CLAUDE_CONFIG_DIR=self.cfg)
+        script = os.path.join(folder, "claude-limits-statusline")
+        r = subprocess.run(["python3", script, "wrap"], capture_output=True, text=True, env=env, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.access(tap, os.X_OK))
+        self.assertEqual(self.read()["statusLine"]["command"], f"{tap} -- ccstatusline")
+        self.assertEqual(len(self.backups()), 1)
+        r = subprocess.run(["python3", script, "unwrap"], capture_output=True, text=True, env=env, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read(), SETTINGS)
 
 
 if __name__ == "__main__":
