@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""Claude Code statusLine tap for the herdr claude-limits mod.
+
+Usage (as the statusLine command):
+    claude-limits-tap -- <your statusline command>
+
+Reads the JSON Claude Code sends on stdin, saves its `rate_limits`
+(five_hour, seven_day) to ~/.local/state/herdr-claude-limits/rate_limits.json,
+then runs the wrapped command with the same stdin bytes. One argument after
+`--` runs through /bin/sh -c (a shell string, as Claude Code itself would);
+several run directly as argv. The wrapped command replaces this process, so
+its stdout, stderr, exit code and signals are its own.
+
+Nothing here touches the network or any credential. Any failure while saving
+is swallowed: the user's statusline must never break because of the tap.
+"""
+import json
+import os
+import sys
+import time
+
+WINDOWS = ("five_hour", "seven_day")
+# Rewrite an unchanged file at most this often, so `captured_at` stays a
+# truthful "last seen" age without a write on every statusline update.
+REFRESH_SECONDS = 60
+
+
+def state_path():
+    return os.path.join(os.path.expanduser("~"), ".local", "state", "herdr-claude-limits", "rate_limits.json")
+
+
+def window(value):
+    """A {used_percentage, resets_at} pair, or None if malformed."""
+    if not isinstance(value, dict):
+        return None
+    pct, resets = value.get("used_percentage"), value.get("resets_at")
+    if not isinstance(pct, (int, float)) or isinstance(pct, bool):
+        return None
+    if not isinstance(resets, (int, float)) or isinstance(resets, bool):
+        return None
+    return {"used_percentage": pct, "resets_at": resets}
+
+
+def tap(data, now):
+    try:
+        payload = json.loads(data)
+    except ValueError:
+        return
+    if not isinstance(payload, dict) or not isinstance(payload.get("rate_limits"), dict):
+        return
+    limits = payload["rate_limits"]
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    path = state_path()
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = json.load(f)
+        if not isinstance(old, dict):
+            old = {}
+    except (OSError, ValueError):
+        old = {}
+
+    if old.get("claude_config_dir") != config_dir:
+        old = {}  # Another account's capture: inherit nothing from it.
+
+    new = {}
+    for name in WINDOWS:
+        w = window(limits.get(name))
+        if w is None:
+            previous = window(old.get(name))
+            if previous is not None and previous["resets_at"] > now:
+                w = previous
+        if w is not None:
+            new[name] = w
+    new["claude_config_dir"] = config_dir
+
+    unchanged = all(old.get(k) == v for k, v in new.items()) and set(old) - {"captured_at"} == set(new)
+    captured = old.get("captured_at")
+    if unchanged and isinstance(captured, (int, float)) and now - captured < REFRESH_SECONDS:
+        return
+    new["captured_at"] = int(now)
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(new, f, indent=2)
+            f.write("\n")
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def stdin_fd(data):
+    """A readable fd holding exactly `data`, rewound to the start."""
+    if hasattr(os, "memfd_create"):
+        fd = os.memfd_create("claude-limits-stdin")
+    else:
+        import tempfile
+
+        with tempfile.TemporaryFile() as f:
+            fd = os.dup(f.fileno())
+    os.write(fd, data)
+    os.lseek(fd, 0, os.SEEK_SET)
+    return fd
+
+
+def main(argv):
+    data = sys.stdin.buffer.read()
+    try:
+        tap(data, time.time())
+    except Exception:
+        pass  # Never let the tap break the statusline.
+
+    cmd = argv[argv.index("--") + 1:] if "--" in argv else []
+    if not cmd:
+        return 0
+    if len(cmd) == 1:
+        cmd = ["/bin/sh", "-c", cmd[0]]
+    sys.stdout.flush()
+    fd = stdin_fd(data)
+    os.dup2(fd, 0)
+    os.close(fd)
+    try:
+        os.execvp(cmd[0], cmd)
+    except OSError as e:
+        sys.stderr.write("claude-limits-tap: %s: %s\n" % (cmd[0], e.strerror))
+        return 127
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
