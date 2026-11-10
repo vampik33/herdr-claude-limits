@@ -83,6 +83,14 @@ cd herdr-claude-limits        # this repository
   it saves `settings.json.bak-<time>` first, keeps every other setting
   (including `refreshInterval`), and never wraps twice. With no statusline
   configured it sets the tap alone, which prints nothing.
+- If `settings.json` is a symlink, for example into a dotfiles repo, the
+  real file is edited and the link stays. The backup goes beside the link,
+  so it doesn't land in the dotfiles repo.
+- If the mod moved and the wrapped tap no longer exists, wrap again: only
+  the tap path changes, and the rest of your command stays as written.
+- If the link's target or its folder is read-only, or any write fails, wrap
+  and unwrap exit with a one-line error and leave `settings.json` unchanged.
+  A `settings.json.bak-*` file only ever appears as a complete copy.
 - **Where the strip appears:** the first time Herdr sees the mod, it docks
   the strip at the bottom of whichever layout is shown at that moment, and
   only that one. To use it in another layout, switch to that layout before
@@ -103,7 +111,8 @@ rm -r ~/.local/state/herdr-claude-limits      # remove the captured numbers
 ```
 
 Restore the statusline **before** removing the mod: the wrapped command
-points at the tap inside the mod folder.
+points at the tap inside the mod folder. Restoring keeps a hand-written
+command as you wrote it, including pipes and variables.
 
 ## Privacy
 

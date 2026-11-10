@@ -278,6 +278,46 @@ class InstallTest(unittest.TestCase):
         self.assertTrue(self.read()["statusLine"]["command"].startswith(f"'{self.tap}' -- "))
         self.assertEqual(os.stat(self.settings).st_mode & 0o777, 0o444)
 
+    def wrap_with_a_failing_backup_copy(self, how_it_ends):
+        # Real script, with shutil.copy2 writing part of the file and then dying.
+        driver = (
+            "import errno, os, runpy, shutil, sys\n"
+            "def partial_copy(src, dst):\n"
+            "    with open(dst, 'w') as f:\n"
+            "        f.write('{')\n"
+            f"    {how_it_ends}\n"
+            "shutil.copy2 = partial_copy\n"
+            "sys.argv = [sys.argv[1], 'wrap']\n"
+            "runpy.run_path(sys.argv[0], run_name='__main__')\n"
+        )
+        script = os.path.join(ROOT, "mods", "claude-limits", "claude-limits-statusline")
+        env = dict(os.environ, CLAUDE_CONFIG_DIR=self.cfg)
+        return subprocess.run(["python3", "-B", "-c", driver, script], capture_output=True, text=True, env=env, timeout=30)
+
+    def test_failed_backup_copy_leaves_no_truncated_backup(self):
+        r = self.wrap_with_a_failing_backup_copy("raise OSError(errno.ENOSPC, 'No space left on device', dst)")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("cannot update settings.json", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(self.read(), SETTINGS)
+        self.assertEqual(self.backups(), [])
+        self.assertEqual(os.listdir(self.cfg), ["settings.json"])
+
+    def test_killed_backup_copy_leaves_no_truncated_backup(self):
+        r = self.wrap_with_a_failing_backup_copy("os._exit(9)")
+        self.assertEqual(r.returncode, 9, r.stdout + r.stderr)
+        self.assertEqual(self.read(), SETTINGS)
+        self.assertEqual(self.backups(), [])
+
+    def test_backup_is_a_complete_copy_with_no_staging_file_left(self):
+        with open(self.settings) as f:
+            original = f.read()
+        self.assertEqual(self.install("--statusline").returncode, 0)
+        self.assertEqual(len(self.backups()), 1)
+        with open(self.backups()[0]) as f:
+            self.assertEqual(f.read(), original)
+        self.assertEqual(sorted(os.listdir(self.cfg)), sorted(["settings.json", os.path.basename(self.backups()[0])]))
+
 
 if __name__ == "__main__":
     unittest.main()
