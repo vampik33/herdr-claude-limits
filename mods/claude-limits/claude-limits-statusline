@@ -81,7 +81,8 @@ def main(argv):
         if not rest:
             del settings["statusLine"]  # the tap was the whole statusLine
         else:
-            line["command"] = rest[0] if len(rest) == 1 else shlex.join(rest)
+            # Several words: drop the tap and the "--", keep the rest verbatim.
+            line["command"] = rest[0] if len(rest) == 1 else replace_first_word(replace_first_word(command, ""), "").lstrip()
 
     # Write through a symlinked settings.json (dotfiles) so the link survives.
     # The backup stays beside the link, out of the dotfiles repo.
