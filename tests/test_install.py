@@ -214,6 +214,70 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(self.install("--uninstall-statusline").returncode, 0)
         self.assertEqual(self.read()["statusLine"]["command"], "foo --x | cat")
 
+    def assert_refused(self, content, r, real):
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("cannot update settings.json", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertTrue(os.path.islink(self.settings))
+        self.assertEqual(self.read(), content)
+        self.assertEqual(self.backups(), [])
+        self.assertEqual(os.listdir(os.path.dirname(real)), ["settings.json"])  # no temp file left
+
+    def test_read_only_symlink_target_is_a_clear_error(self):
+        # (file mode, its folder's mode): a Nix-store-like target, then each half alone.
+        self.assertEqual(self.install().returncode, 0)  # the tap exists, so unwrap and wrap reach the write
+        real = self.symlink_settings()
+        dotfiles = os.path.dirname(real)
+        wrapped = dict(SETTINGS, statusLine=dict(SETTINGS["statusLine"], command=f"'{self.tap}' -- ccstatusline"))
+        for file_mode, dir_mode in ((0o444, 0o555), (0o444, 0o755), (0o644, 0o555)):
+            for flag, content in (("--statusline", SETTINGS), ("--uninstall-statusline", wrapped)):
+                with self.subTest(flag=flag, file_mode=oct(file_mode), dir_mode=oct(dir_mode)):
+                    os.chmod(real, 0o644)
+                    self.write(content)
+                    os.chmod(real, file_mode)
+                    os.chmod(dotfiles, dir_mode)
+                    try:
+                        r = self.install(flag)
+                    finally:
+                        os.chmod(dotfiles, 0o755)
+                    self.assert_refused(content, r, real)
+
+    def test_read_only_folder_with_a_stale_temp_file_changes_nothing(self):
+        # A writable temp file from an interrupted run can be rewritten even in a read-only folder.
+        real = self.symlink_settings()
+        dotfiles = os.path.dirname(real)
+        stale = real + ".claude-limits.tmp"
+        with open(stale, "w") as f:
+            f.write("stale")
+        os.chmod(dotfiles, 0o555)
+        try:
+            r = self.install("--statusline")
+        finally:
+            os.chmod(dotfiles, 0o755)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("cannot update settings.json", r.stderr)
+        self.assertEqual(self.read(), SETTINGS)
+        self.assertEqual(self.backups(), [])
+        with open(stale) as f:
+            self.assertEqual(f.read(), "stale")
+
+    def test_unwritable_backup_folder_is_a_clear_error_and_leaves_no_temp_file(self):
+        real = self.symlink_settings()
+        os.chmod(self.cfg, 0o555)
+        try:
+            r = self.install("--statusline")
+        finally:
+            os.chmod(self.cfg, 0o755)
+        self.assert_refused(SETTINGS, r, real)
+
+    def test_plain_read_only_settings_is_still_replaced(self):
+        # Only a symlinked target is refused; a plain file keeps its old behaviour.
+        os.chmod(self.settings, 0o444)
+        r = self.install("--statusline")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.read()["statusLine"]["command"].startswith(f"'{self.tap}' -- "))
+        self.assertEqual(os.stat(self.settings).st_mode & 0o777, 0o444)
+
 
 if __name__ == "__main__":
     unittest.main()
