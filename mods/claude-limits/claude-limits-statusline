@@ -29,6 +29,17 @@ def tap_args(cmd):
     return None
 
 
+def replace_first_word(cmd, word):
+    """cmd with its first word replaced; the rest stays verbatim, so its shell syntax survives."""
+    lexer = shlex.shlex(cmd, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    lexer.get_token()
+    rest = lexer.instream.read()
+    # The lexer consumed the one character that ended the first word.
+    return word + cmd[len(cmd) - len(rest) - 1 :] if rest else word
+
+
 def main(argv):
     if argv not in (["wrap"], ["unwrap"]):
         sys.exit(__doc__.strip())
@@ -46,12 +57,17 @@ def main(argv):
     command = line.get("command") if isinstance(line, dict) else None
     wrapped = tap_args(command)
     if mode == "wrap":
-        if wrapped is not None:
+        old_tap = shlex.split(command)[0] if wrapped is not None else None
+        if old_tap and (os.path.exists(os.path.expanduser(old_tap)) or shutil.which(old_tap)):
             print(f"statusLine already wrapped: {command}")
             return
         # Claude Code runs the tap directly; a copy made file by file may have lost +x.
         os.chmod(tap, os.stat(tap).st_mode | 0o111)
-        if isinstance(line, dict) and line.get("type", "command") == "command" and command:
+        if wrapped is not None:
+            # Wrapped by a tap that no longer exists (mod moved or reinstalled
+            # elsewhere): point the command at this tap, keep the rest.
+            line["command"] = replace_first_word(command, shlex.quote(tap))
+        elif isinstance(line, dict) and line.get("type", "command") == "command" and command:
             line["command"] = f"{shlex.quote(tap)} -- {shlex.quote(command)}"
         elif line is None:
             settings["statusLine"] = {"type": "command", "command": shlex.quote(tap)}
@@ -67,18 +83,21 @@ def main(argv):
         else:
             line["command"] = rest[0] if len(rest) == 1 else shlex.join(rest)
 
-    os.makedirs(config_dir, exist_ok=True)
-    if os.path.exists(path):
+    # Write through a symlinked settings.json (dotfiles) so the link survives.
+    # The backup stays beside the link, out of the dotfiles repo.
+    real = os.path.realpath(path)
+    os.makedirs(os.path.dirname(real), exist_ok=True)
+    if os.path.exists(real):
         backup = f"{path}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
-        shutil.copy2(path, backup)
+        shutil.copy2(real, backup)
         print(f"backup: {backup}")
-    tmp = f"{path}.claude-limits.tmp"
+    tmp = f"{real}.claude-limits.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    if os.path.exists(path):
-        shutil.copymode(path, tmp)
-    os.replace(tmp, path)
+    if os.path.exists(real):
+        shutil.copymode(real, tmp)
+    os.replace(tmp, real)
     after = settings.get("statusLine", {}).get("command")
     print(f"statusLine.command: {after}" if after else "statusLine removed")
 
