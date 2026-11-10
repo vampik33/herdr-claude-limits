@@ -135,6 +135,29 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.read(), SETTINGS)
 
+    def test_symlinked_settings_stays_a_symlink(self):
+        # settings.json managed by a dotfiles repo: edit the target, keep the link.
+        real = os.path.join(self.tmp.name, "dotfiles", "settings.json")
+        os.makedirs(os.path.dirname(real))
+        shutil.move(self.settings, real)
+        os.symlink(real, self.settings)
+        self.assertEqual(self.install("--statusline").returncode, 0)
+        self.assertTrue(os.path.islink(self.settings))
+        self.assertTrue(self.read()["statusLine"]["command"].startswith(f"'{self.tap}' -- "))
+        self.assertEqual(self.install("--uninstall-statusline").returncode, 0)
+        self.assertTrue(os.path.islink(self.settings))
+        self.assertEqual(self.read(), SETTINGS)
+
+    def test_wrap_retargets_a_missing_tap(self):
+        # Wrapped by a tap that is gone (mod moved): wrap points it at this tap.
+        gone = os.path.join(self.tmp.name, "old", "claude-limits-tap")
+        self.write(dict(SETTINGS, statusLine={"type": "command", "command": f"{gone} -- ccstatusline", "refreshInterval": 5}))
+        r = self.install("--statusline")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read()["statusLine"]["command"], f"'{self.tap}' -- ccstatusline")
+        self.assertEqual(self.install("--uninstall-statusline").returncode, 0)
+        self.assertEqual(self.read(), SETTINGS)
+
 
 if __name__ == "__main__":
     unittest.main()
