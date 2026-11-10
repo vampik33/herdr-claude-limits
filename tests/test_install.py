@@ -199,6 +199,21 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(self.read(), settings)
         self.assertEqual(self.backups(), [])
 
+    def test_unwrap_restores_a_hand_written_command_verbatim(self):
+        # Hand-written wrappers aren't one quoted word: the shell syntax after -- must survive.
+        tap = os.path.join(self.tmp.name, "a dir", "claude-limits-tap")
+        for rest in ("foo | cat", 'printf "%s" "$HOME"', "a  'b c'", "foo\nbar"):
+            with self.subTest(rest):
+                self.write(dict(SETTINGS, statusLine={"type": "command", "command": f"'{tap}' -- {rest}", "refreshInterval": 5}))
+                r = self.install("--uninstall-statusline")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self.read()["statusLine"], {"type": "command", "command": rest, "refreshInterval": 5})
+
+    def test_unwrap_decodes_a_single_quoted_command(self):
+        self.write(dict(SETTINGS, statusLine={"type": "command", "command": f"'{self.tap}' -- 'foo --x | cat'"}))
+        self.assertEqual(self.install("--uninstall-statusline").returncode, 0)
+        self.assertEqual(self.read()["statusLine"]["command"], "foo --x | cat")
+
 
 if __name__ == "__main__":
     unittest.main()
