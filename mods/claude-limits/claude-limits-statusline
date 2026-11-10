@@ -89,6 +89,7 @@ def main(argv):
     # The backup stays beside the link, out of the dotfiles repo.
     real = os.path.realpath(path)
     tmp = f"{real}.claude-limits.tmp"
+    backup_tmp = f"{path}.claude-limits-backup.{os.getpid()}.tmp"
     try:
         os.makedirs(os.path.dirname(real), exist_ok=True)
         # The rename below would succeed over a read-only file; a link's target stays untouched.
@@ -104,12 +105,15 @@ def main(argv):
         if os.path.exists(real):
             shutil.copymode(real, tmp)
             backup = f"{path}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
-            shutil.copy2(real, backup)
+            # Renamed into place once complete, so a .bak-* is never truncated.
+            shutil.copy2(real, backup_tmp)
+            os.replace(backup_tmp, backup)
             print(f"backup: {backup}")
         os.replace(tmp, real)
     except OSError as err:
-        with contextlib.suppress(OSError):
-            os.remove(tmp)
+        for leftover in (tmp, backup_tmp):
+            with contextlib.suppress(OSError):
+                os.remove(leftover)
         sys.exit(f"cannot update settings.json: {err}. settings.json was not changed")
     after = settings.get("statusLine", {}).get("command")
     print(f"statusLine.command: {after}" if after else "statusLine removed")

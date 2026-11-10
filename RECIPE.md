@@ -77,8 +77,20 @@ numbers come from the statusline, not from the mod.
   `refreshInterval`; it never wraps twice, sets the tap alone when there
   is no statusline, and restores the tap's execute bit. The tap path is
   the `claude-limits-tap` next to the script, so a renamed mod folder
-  still works. `unwrap` puts the old command back. It lives in the mod
-  folder because a gallery install copies only that folder.
+  still works. A command wrapped by a tap that still exists is left alone;
+  if that tap is gone, only the command's first word is replaced and the
+  rest stays verbatim. `unwrap` puts the old command back: one wrapped
+  word is unquoted, several keep their original text, including pipes,
+  variables and newlines. It lives in the mod folder because a gallery
+  install copies only that folder.
+  A symlinked `settings.json` is written through (temp file beside the
+  real file + `os.replace`), so the link stays. The backup stays beside
+  the link, out of a dotfiles repo, and is copied under a temp name that
+  `settings.json.bak-*` doesn't match, then renamed, so a backup is never
+  truncated. If a link's target or the target's folder is read-only, or a
+  write fails, it exits 1 with one `cannot update settings.json` line and
+  no traceback, and removes its temp files. A plain, non-symlinked
+  read-only `settings.json` is still replaced.
 - `install.sh`: copies the mod into `${HERDR_APP_HOME:-~/.config/herdr-app}/mods/`
   (refuses to replace a different copy without `--force`).
   `--statusline` runs the installed `claude-limits-statusline wrap`,
@@ -118,7 +130,10 @@ numbers come from the statusline, not from the mod.
 - `python3 -m unittest discover -s tests` passes (tap merging, expiry,
   non-JSON input, identical stdin to the wrapped command with its stdout,
   stderr and exit code, unwritable state dir; installer wrap, idempotency,
-  restore, key preservation, wrap from a renamed copy of the mod folder).
+  restore, key preservation, wrap from a renamed copy of the mod folder,
+  symlinked and dangling `settings.json`, retargeting a missing tap, verbatim
+  shell syntax on retarget and restore, read-only targets and folders,
+  a failed or killed backup copy).
 - `statusLine.command` in `${CLAUDE_CONFIG_DIR:-~/.claude}/settings.json`
   starts with the installed mod's `claude-limits-tap`, followed by `--`
   and the person's previous command, and a `settings.json.bak-<time>`
