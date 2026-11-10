@@ -135,18 +135,32 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.read(), SETTINGS)
 
-    def test_symlinked_settings_stays_a_symlink(self):
-        # settings.json managed by a dotfiles repo: edit the target, keep the link.
+    def symlink_settings(self):
         real = os.path.join(self.tmp.name, "dotfiles", "settings.json")
         os.makedirs(os.path.dirname(real))
         shutil.move(self.settings, real)
         os.symlink(real, self.settings)
+        return real
+
+    def test_symlinked_settings_stays_a_symlink(self):
+        # settings.json managed by a dotfiles repo: edit the target, keep the link.
+        real = self.symlink_settings()
         self.assertEqual(self.install("--statusline").returncode, 0)
         self.assertTrue(os.path.islink(self.settings))
         self.assertTrue(self.read()["statusLine"]["command"].startswith(f"'{self.tap}' -- "))
+        self.assertEqual(len(self.backups()), 1)  # beside the link
+        self.assertEqual(os.listdir(os.path.dirname(real)), ["settings.json"])  # dotfiles repo stays clean
         self.assertEqual(self.install("--uninstall-statusline").returncode, 0)
         self.assertTrue(os.path.islink(self.settings))
         self.assertEqual(self.read(), SETTINGS)
+
+    def test_dangling_symlinked_settings_is_created_through_the_link(self):
+        real = self.symlink_settings()
+        os.remove(real)
+        self.assertEqual(self.install("--statusline").returncode, 0)
+        self.assertTrue(os.path.islink(self.settings))
+        self.assertEqual(self.read()["statusLine"]["command"], f"'{self.tap}'")
+        self.assertEqual(self.backups(), [])
 
     def test_wrap_retargets_a_missing_tap(self):
         # Wrapped by a tap that is gone (mod moved): wrap points it at this tap.
@@ -157,6 +171,33 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(self.read()["statusLine"]["command"], f"'{self.tap}' -- ccstatusline")
         self.assertEqual(self.install("--uninstall-statusline").returncode, 0)
         self.assertEqual(self.read(), SETTINGS)
+
+    def test_wrap_retarget_keeps_a_quoted_command(self):
+        gone = os.path.join(self.tmp.name, "old dir", "claude-limits-tap")
+        for rest in (" -- 'ccstatusline --x | cat'", ' -- printf "%s" "$HOME"', " -- ccstatusline | cat", "\nprintf visible"):
+            with self.subTest(rest):
+                self.write(dict(SETTINGS, statusLine={"type": "command", "command": f"'{gone}'{rest}"}))
+                self.assertEqual(self.install("--statusline").returncode, 0)
+                self.assertEqual(self.read()["statusLine"]["command"], f"'{self.tap}'{rest}")
+
+    def test_wrap_retargets_a_missing_tap_with_no_wrapped_command(self):
+        gone = os.path.join(self.tmp.name, "old", "claude-limits-tap")
+        self.write(dict(SETTINGS, statusLine={"type": "command", "command": gone}))
+        self.assertEqual(self.install("--statusline").returncode, 0)
+        self.assertEqual(self.read()["statusLine"]["command"], f"'{self.tap}'")
+
+    def test_wrap_leaves_an_existing_other_tap_alone(self):
+        # Another copy of the mod is still installed: already wrapped, no rewrite.
+        other = os.path.join(self.tmp.name, "other", "claude-limits-tap")
+        os.makedirs(os.path.dirname(other))
+        shutil.copy(os.path.join(ROOT, "mods", "claude-limits", "claude-limits-tap"), other)
+        settings = dict(SETTINGS, statusLine={"type": "command", "command": f"{other} -- ccstatusline"})
+        self.write(settings)
+        r = self.install("--statusline")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("already wrapped", r.stdout)
+        self.assertEqual(self.read(), settings)
+        self.assertEqual(self.backups(), [])
 
 
 if __name__ == "__main__":
